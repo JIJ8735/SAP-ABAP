@@ -1,0 +1,29 @@
+*&---------------------------------------------------------------------*
+*& Report  Z_MMR478
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  Z_MMR478.
+
+INCLUDE ZMMR478TOP.
+INCLUDE ZMMR478CLS.
+INCLUDE ZMMR478SEL.
+INCLUDE ZMMR478I01.
+INCLUDE ZMMR478O01.
+INCLUDE ZMMR478F01.
+
+INITIALIZATION.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR P_PATH.
+
+  PERFORM GET_FILE.
+
+START-OF-SELECTION.
+
+  PERFORM UPLOAD_DATA.
+  PERFORM BUILD_DATA.
+
+  CALL SCREEN 100.

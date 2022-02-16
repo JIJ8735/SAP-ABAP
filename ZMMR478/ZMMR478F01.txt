@@ -1,0 +1,372 @@
+*&---------------------------------------------------------------------*
+*&  INCLUDE           ZMMR478F01
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      FORM  GET_FILE
+*&---------------------------------------------------------------------*
+*       TEXT
+*----------------------------------------------------------------------*
+*  -->  P1        TEXT
+*  <--  P2        TEXT
+*----------------------------------------------------------------------*
+FORM GET_FILE .
+
+  DATA : LT_PATH TYPE FILETABLE,
+         LS_PATH TYPE FILE_TABLE.
+
+  DATA : LV_RC TYPE I.
+
+* 파일 선택 창 호출
+  CALL METHOD CL_GUI_FRONTEND_SERVICES=>FILE_OPEN_DIALOG
+*    EXPORTING
+*      WINDOW_TITLE            =
+*      DEFAULT_EXTENSION       =
+*      DEFAULT_FILENAME        =
+*      FILE_FILTER             =
+*      WITH_ENCODING           =
+*      INITIAL_DIRECTORY       =
+*      MULTISELECTION          = ABAP_TRUE
+    CHANGING
+      FILE_TABLE = LT_PATH
+      RC         = LV_RC
+*     USER_ACTION             =
+*     FILE_ENCODING           =
+*    EXCEPTIONS
+*     FILE_OPEN_DIALOG_FAILED = 1
+*     CNTL_ERROR = 2
+*     ERROR_NO_GUI            = 3
+*     NOT_SUPPORTED_BY_GUI    = 4
+*     OTHERS     = 5
+    .
+  IF SY-SUBRC <> 0.
+*   IMPLEMENT SUITABLE ERROR HANDLING HERE
+  ENDIF.
+
+  READ TABLE LT_PATH INTO LS_PATH INDEX 1.
+  IF SY-SUBRC = 0.
+    P_PATH = LS_PATH.
+  ENDIF.
+ENDFORM.                    " GET_FILE
+*&---------------------------------------------------------------------*
+*&      FORM  UPLOAD_DATA
+*&---------------------------------------------------------------------*
+*       TEXT
+*----------------------------------------------------------------------*
+*  -->  P1        TEXT
+*  <--  P2        TEXT
+*----------------------------------------------------------------------*
+FORM UPLOAD_DATA .
+
+  DATA : LT_INTERN TYPE TABLE OF ALSMEX_TABLINE,
+         LS_INTERN TYPE ALSMEX_TABLINE.
+
+  CALL FUNCTION 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+    EXPORTING
+      FILENAME    = P_PATH
+      I_BEGIN_COL = 3
+      I_BEGIN_ROW = 5
+      I_END_COL   = 3
+      I_END_ROW   = 9999
+    TABLES
+      INTERN      = LT_INTERN.
+
+  CLEAR GT_EXCEL.
+  LOOP AT LT_INTERN INTO LS_INTERN.
+
+    CASE LS_INTERN-COL.
+      WHEN 1.
+
+        GS_EXCEL-MATNR = LS_INTERN-VALUE.
+    ENDCASE.
+
+    AT END OF ROW.
+      APPEND GS_EXCEL TO GT_EXCEL.
+      CLEAR GS_EXCEL.
+    ENDAT.
+
+  ENDLOOP.
+ENDFORM.                    " UPLOAD_DATA
+*&---------------------------------------------------------------------*
+*&      Form  BUILD_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM BUILD_DATA .
+
+  DATA: LV_INDEX TYPE I.
+  DATA: LV_INTERNAL LIKE BAPICURR-BAPICURR.
+  LV_INDEX = 1.
+
+"***S FOR ALL ENTRIES 사용 하기 위한 INITIAL CHECK
+  IF GT_EXCEL IS NOT INITIAL.
+"***E FOR ALL ENTRIES 사용 하기 위한 INITIAL CHECK
+
+"***S 자재 코드 CONVERSION
+    LOOP AT GT_EXCEL INTO GS_EXCEL.
+
+     CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+       EXPORTING
+         INPUT              = GS_EXCEL-MATNR
+       IMPORTING
+         OUTPUT             = GS_EXCEL-MATNR
+*      EXCEPTIONS
+*        LENGTH_ERROR       = 1
+*        OTHERS             = 2
+            .
+
+      MODIFY GT_EXCEL FROM GS_EXCEL-MATNR.
+    ENDLOOP.
+
+    IF SY-SUBRC <> 0.
+*   MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*           WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.
+"***E 자재 코드 CONVERSION
+
+
+"***S GT_DATA SELECT
+    SELECT R~MATNR K1~MAKTX AS MAKTX_1 T~STLNR S~IDNRK K2~MAKTX AS MAKTX_2
+      INTO CORRESPONDING FIELDS OF TABLE GT_DATA
+      FROM MARA AS R INNER JOIN MAKT AS K1 ON K1~MATNR EQ R~MATNR
+                      INNER JOIN MAST AS T  ON T~MATNR  EQ R~MATNR
+                      INNER JOIN STPO AS S  ON T~STLNR  EQ S~STLNR
+                      INNER JOIN MAKT AS K2 ON S~IDNRK  EQ K2~MATNR
+       FOR ALL ENTRIES IN GT_EXCEL
+     WHERE R~MATNR EQ GT_EXCEL-MATNR.
+
+     SORT GT_DATA BY MATNR ASCENDING.
+     DELETE ADJACENT DUPLICATES FROM GT_DATA COMPARING MATNR IDNRK.
+"***E GT_DATA SELECT
+
+"***S GT_EKPO SELECT MODIFY -> GT_DATA
+    LOOP AT GT_DATA INTO GS_DATA.
+
+      SELECT P~EBELN K~LIFNR L~NAME1 P~NETPR
+        INTO CORRESPONDING FIELDS OF TABLE GT_EKPO
+        FROM EKPO AS P INNER JOIN EKKO AS K ON P~EBELN EQ K~EBELN
+                        INNER JOIN LFA1 AS L ON K~LIFNR EQ L~LIFNR
+       WHERE P~MATNR EQ GS_DATA-IDNRK.
+
+      SORT GT_EKPO BY EBELN DESCENDING.
+
+      READ TABLE GT_EKPO INTO GS_EKPO INDEX 1.
+      LV_INTERNAL = GS_EKPO-NETPR.
+
+      CALL FUNCTION 'BAPI_CURRENCY_CONV_TO_EXTERNAL'
+        EXPORTING
+          CURRENCY              = 'KRW'
+          AMOUNT_INTERNAL       = LV_INTERNAL
+        IMPORTING
+          AMOUNT_EXTERNAL       = LV_INTERNAL
+                .
+
+      GS_EKPO-NETPR = LV_INTERNAL.
+
+      MOVE-CORRESPONDING GS_EKPO TO GS_DATA.
+
+      GS_DATA-NUMBR = LV_INDEX. "ALV INDEX (NO.)
+
+      MODIFY GT_DATA FROM GS_DATA INDEX LV_INDEX.
+      ADD 1 TO LV_INDEX.
+    ENDLOOP.
+"***E GT_EKPO SELECT MODIFY -> GT_DATA
+
+  ENDIF.
+ENDFORM.                    " BUILD_DATA
+*&---------------------------------------------------------------------*
+*&      Form  CREATE_OBJECT_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM CREATE_OBJECT_0100 .
+
+  CREATE OBJECT GO_CONTAINER_0100
+    EXPORTING
+       SIDE                        = CL_GUI_DOCKING_CONTAINER=>DOCK_AT_LEFT
+       EXTENSION                   = CL_GUI_DOCKING_CONTAINER=>WS_MAXIMIZEBOX.
+
+  IF SY-SUBRC <> 0.
+*   MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*              WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+  CREATE OBJECT GO_GRID_0100
+    EXPORTING
+
+       I_PARENT          = GO_CONTAINER_0100.
+
+  IF SY-SUBRC <> 0.
+*   MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*              WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+
+ENDFORM.                    " CREATE_OBJECT_0100
+*&---------------------------------------------------------------------*
+*&      Form  INIT_FCAT_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM INIT_FCAT_0100 .
+                                               "필드변수 "필드명           "KEY  "REFT  "REFF   "CFIELD  "OPT  "필드색
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MATNR'   '상품 자재 코드'  'X'   ''     ''      ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_1' '상품 자재 내역'  ''    ''     ''      ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'IDNRK'   '하위 자재 코드'  ''    ''     ''      ''       'A'   'C300'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_2' '하위 자재 내역'  ''    ''     ''      ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'LIFNR'   '거래처 코드'     ''    ''     ''      ''       'A'   'C500'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NAME1'   '거래처명'        ''    ''     ''      ''       'A'   'C500'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NETPR'   '하위 자재 단가'  ''    'EKKO' 'WAERS' 'WAERS'  'A'   'C500'.
+ENDFORM.                    " INIT_FCAT_0100
+*&---------------------------------------------------------------------*
+*&      Form  SET_FCAT_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_FCAT_0100  text
+*      -->P_0186   text
+*      -->P_0187   text
+*      -->P_0188   text
+*      -->P_0189   text
+*      -->P_0190   text
+*      -->P_ENDFORM  text
+*----------------------------------------------------------------------*
+FORM SET_FCAT_0100  USING    P_GT_FCAT_0100
+                             P_FIELDNAME
+                             P_COLTEXT
+                             P_KEY
+                             P_REF_TABLE
+                             P_REF_FIELD
+                             P_CFIELDNAME
+                             P_OPT
+                             P_EMPHASIZE.
+
+  CLEAR GS_FCAT_0100.
+  GS_FCAT_0100-FIELDNAME  = P_FIELDNAME.
+  GS_FCAT_0100-COLTEXT    = P_COLTEXT.
+  GS_FCAT_0100-KEY        = P_KEY.
+  GS_FCAT_0100-REF_TABLE  = P_REF_TABLE.
+  GS_FCAT_0100-REF_FIELD  = P_REF_FIELD.
+  GS_FCAT_0100-CFIELDNAME = P_CFIELDNAME.
+  GS_FCAT_0100-COL_OPT    = P_OPT.
+  GS_FCAT_0100-EMPHASIZE  = P_EMPHASIZE.
+  APPEND GS_FCAT_0100 TO GT_FCAT_0100.
+ENDFORM.                    " SET_FCAT_0100
+*&---------------------------------------------------------------------*
+*&      Form  INIT_LAYOUT_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM INIT_LAYOUT_0100 .
+
+  CLEAR GS_LAYO_0100.
+
+  GS_LAYO_0100-ZEBRA      = 'X'.
+  GS_LAYO_0100-INFO_FNAME = 'COLOR'.
+ENDFORM.                    " INIT_LAYOUT_0100
+*&---------------------------------------------------------------------*
+*&      Form  TOOLBAR_EXCLUDE_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM TOOLBAR_EXCLUDE_0100 .
+
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_COPY_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_DELETE_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_APPEND_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_INSERT_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_MOVE_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_COPY.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_CUT.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_PASTE.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_PASTE_NEW_ROW.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+  GS_EXCLUDE = CL_GUI_ALV_GRID=>MC_FC_LOC_UNDO.
+  APPEND GS_EXCLUDE TO GT_EXCLUDE.
+ENDFORM.                    " TOOLBAR_EXCLUDE_0100
+*&---------------------------------------------------------------------*
+*&      Form  DISPLAY_ALV_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM DISPLAY_ALV_0100 .
+
+  CALL METHOD GO_GRID_0100->SET_TABLE_FOR_FIRST_DISPLAY
+     EXPORTING
+*      I_BUFFER_ACTIVE               =
+*      I_BYPASSING_BUFFER            =
+*      I_CONSISTENCY_CHECK           =
+*      I_STRUCTURE_NAME              =
+*      IS_VARIANT                    =
+*      I_SAVE                        =
+*      I_DEFAULT                     = 'X'
+       IS_LAYOUT                     = GS_LAYO_0100
+*      IS_PRINT                      =
+*      GT_SPECIAL_GROUPS             =
+       IT_TOOLBAR_EXCLUDING          = GT_EXCLUDE
+*      IT_HYPERLINK                  =
+*      IT_ALLV_GRAPHICS               =
+*      IT_EXCEPT_QINFO               =
+*      IR_SALLV_ADAPTER               =
+    CHANGING
+      IT_OUTTAB                     = GT_DATA
+      IT_FIELDCATALOG               = GT_FCAT_0100
+*     IT_SORT                       =
+*     IT_FILTER                     =
+*    EXCEPTIONS
+*      INVALID_PARAMETER_COMBINATION = 1
+*      PROGRAM_ERROR                 = 2
+*      TOO_MANY_LINES                = 3
+*      others                        = 4
+          .
+
+  IF SY-SUBRC <> 0.
+*   Implement suitable error handling here
+  ENDIF.
+
+ENDFORM.                    " DISPLAY_ALV_0100
+*&---------------------------------------------------------------------*
+*&      Form  REFRESH_ALV_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM REFRESH_ALV_0100 .
+
+  DATA LS_STABLE TYPE LVC_S_STBL.
+
+  LS_STABLE-ROW = 'X'.
+  LS_STABLE-COL = 'X'.
+
+
+  CALL METHOD GO_GRID_0100->REFRESH_TABLE_DISPLAY
+    EXPORTING
+      IS_STABLE      = LS_STABLE.
+ENDFORM.                    " REFRESH_ALV_0100

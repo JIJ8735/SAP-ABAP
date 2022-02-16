@@ -1,0 +1,62 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZMMR478TOP
+*&---------------------------------------------------------------------*
+
+TABLES: MARA,
+         MAKT,
+         MAST,
+         STPO,
+         EINA,
+         LFA1,
+         EKPO.
+
+DATA: BEGIN OF GS_EXCEL,
+
+  MATNR TYPE MARA-MATNR,
+END OF GS_EXCEL.
+
+DATA: GT_EXCEL LIKE TABLE OF GS_EXCEL.
+
+"***S 거래처, 단가 LOOP SELECT 용 테이블
+DATA: BEGIN OF GS_EKPO,
+
+  EBELN TYPE EKPO-EBELN,  "PO 번호
+  LIFNR TYPE EKKO-LIFNR,  "거래처 코드
+  NAME1 TYPE LFA1-NAME1,  "거래처명
+  NETPR TYPE EKPO-NETPR,  "단가
+END OF GS_EKPO.
+
+DATA: GT_EKPO LIKE TABLE OF GS_EKPO.
+"***E 거래처, 단가 LOOP SELECT 용 테이블
+
+
+"***S 자재, 하위자재(상품) 관련 정보, ALV MAIN TABLE
+DATA: BEGIN OF GS_DATA,
+
+  NUMBR   TYPE I,            "NO.
+  MATNR   TYPE MARA-MATNR,  "자재코드
+  MAKTX_1 TYPE MAKT-MAKTX,  "자재내역
+  STLNR   TYPE MAST-STLNR,  "BOM No.
+  IDNRK   TYPE STPO-IDNRK,  "하위자재코드
+  MAKTX_2 TYPE MAKT-MAKTX,  "하위자재내역
+  LIFNR   TYPE EINA-LIFNR,  "거래처코드
+  NAME1   TYPE LFA1-NAME1,  "거래처명
+  NETPR   TYPE EKPO-NETPR,  "최근 PO 단가
+END OF GS_DATA.
+
+DATA: GT_DATA LIKE TABLE OF GS_DATA.
+"***E 자재, 하위자재(상품) 관련 정보, ALV MAIN TABLE
+
+DATA: GO_CONTAINER_0100 TYPE REF TO CL_GUI_DOCKING_CONTAINER,
+      GO_GRID_0100      TYPE REF TO CL_GUI_ALV_GRID.
+
+DATA : GS_SORT TYPE LVC_S_SORT,
+       GT_SORT TYPE LVC_T_SORT.
+
+DATA: GT_EXCLUDE TYPE UI_FUNCTIONS,
+      GS_EXCLUDE TYPE UI_FUNC.
+
+DATA: GS_FCAT_0100 TYPE LVC_S_FCAT,
+      GT_FCAT_0100 TYPE LVC_T_FCAT.
+
+DATA: GS_LAYO_0100 TYPE LVC_S_LAYO.

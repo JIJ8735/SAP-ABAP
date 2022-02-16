@@ -1,0 +1,9 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZMMR478SEL
+*&---------------------------------------------------------------------*
+
+SELECTION-SCREEN BEGIN OF BLOCK BLK1 WITH FRAME TITLE TEXT-T01.
+
+  PARAMETERS P_PATH TYPE RLGRAP-FILENAME OBLIGATORY.
+
+SELECTION-SCREEN END OF BLOCK BLK1.
