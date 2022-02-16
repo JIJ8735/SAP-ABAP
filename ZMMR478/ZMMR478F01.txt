@@ -97,7 +97,6 @@ ENDFORM.                    " UPLOAD_DATA
 FORM BUILD_DATA .
 
   DATA: LV_INDEX TYPE I.
-  DATA: LV_INTERNAL LIKE BAPICURR-BAPICURR.
   LV_INDEX = 1.
 
 "***S FOR ALL ENTRIES 사용 하기 위한 INITIAL CHECK
@@ -126,25 +125,62 @@ FORM BUILD_DATA .
     ENDIF.
 "***E 자재 코드 CONVERSION
 
-
-"***S GT_DATA SELECT
-    SELECT R~MATNR K1~MAKTX AS MAKTX_1 T~STLNR S~IDNRK K2~MAKTX AS MAKTX_2
+    SELECT R~MATNR T~STLNR
       INTO CORRESPONDING FIELDS OF TABLE GT_DATA
-      FROM MARA AS R INNER JOIN MAKT AS K1 ON K1~MATNR EQ R~MATNR
-                      INNER JOIN MAST AS T  ON T~MATNR  EQ R~MATNR
-                      INNER JOIN STPO AS S  ON T~STLNR  EQ S~STLNR
-                      INNER JOIN MAKT AS K2 ON S~IDNRK  EQ K2~MATNR
+      FROM MARA AS R LEFT OUTER JOIN MAST AS T ON T~MATNR EQ R~MATNR
        FOR ALL ENTRIES IN GT_EXCEL
      WHERE R~MATNR EQ GT_EXCEL-MATNR.
 
-     SORT GT_DATA BY MATNR ASCENDING.
-     DELETE ADJACENT DUPLICATES FROM GT_DATA COMPARING MATNR IDNRK.
-"***E GT_DATA SELECT
 
-"***S GT_EKPO SELECT MODIFY -> GT_DATA
     LOOP AT GT_DATA INTO GS_DATA.
 
-      SELECT P~EBELN K~LIFNR L~NAME1 P~NETPR
+"***S 상품의 경우 (BOM이 없는 경우)
+      IF GS_DATA-STLNR IS INITIAL.
+
+        GS_DATA-IDNRK = GS_DATA-MATNR.
+        MODIFY GT_DATA FROM GS_DATA TRANSPORTING IDNRK.
+"***E 상품의 경우 (BOM이 없는 경우)
+
+"***S 상품이 아닌 경우 (BOM이 있는 경우)
+      ELSE.
+
+        CLEAR GS_MARA.
+
+        SELECT SINGLE R~MATNR T~STLNR S~IDNRK
+          INTO CORRESPONDING FIELDS OF GS_MARA
+          FROM MARA AS R INNER JOIN MAST AS T ON R~MATNR EQ T~MATNR
+                          INNER JOIN STPO AS S ON S~STLNR EQ T~STLNR
+         WHERE R~MATNR EQ GS_DATA-MATNR.
+
+         MOVE-CORRESPONDING GS_MARA TO GS_DATA.
+         MODIFY GT_DATA FROM GS_DATA TRANSPORTING IDNRK.
+      ENDIF.
+"***E 상품이 아닌 경우 (BOM이 있는 경우)
+
+"***S 자재 내역, 하위 자재 내역 SELECT
+      CLEAR GS_MARA.
+
+      SELECT SINGLE R~MATNR K1~MAKTX AS MAKTX_1
+        INTO CORRESPONDING FIELDS OF GS_MARA
+        FROM MARA AS R INNER JOIN MAKT AS K1 ON K1~MATNR EQ R~MATNR
+       WHERE R~MATNR EQ GS_DATA-MATNR.
+
+      GS_DATA-MAKTX_1 = GS_MARA-MAKTX_1.
+      MODIFY GT_DATA FROM GS_DATA TRANSPORTING MAKTX_1.
+
+      CLEAR GS_MARA.
+
+      SELECT SINGLE R~MATNR AS IDNRK K2~MAKTX AS MAKTX_2
+        INTO CORRESPONDING FIELDS OF GS_MARA
+        FROM MARA AS R INNER JOIN MAKT AS K2 ON K2~MATNR EQ R~MATNR
+       WHERE R~MATNR EQ GS_DATA-IDNRK.
+
+      GS_DATA-MAKTX_2 = GS_MARA-MAKTX_2.
+      MODIFY GT_DATA FROM GS_DATA TRANSPORTING MAKTX_2.
+"***E 자재 내역, 하위 자재 내역 SELECT
+
+"***S GT_EKPO SELECT MODIFY -> GT_DATA
+      SELECT P~EBELN K~LIFNR L~NAME1 P~NETPR K~WAERS
         INTO CORRESPONDING FIELDS OF TABLE GT_EKPO
         FROM EKPO AS P INNER JOIN EKKO AS K ON P~EBELN EQ K~EBELN
                         INNER JOIN LFA1 AS L ON K~LIFNR EQ L~LIFNR
@@ -153,19 +189,29 @@ FORM BUILD_DATA .
       SORT GT_EKPO BY EBELN DESCENDING.
 
       READ TABLE GT_EKPO INTO GS_EKPO INDEX 1.
-      LV_INTERNAL = GS_EKPO-NETPR.
-
-      CALL FUNCTION 'BAPI_CURRENCY_CONV_TO_EXTERNAL'
-        EXPORTING
-          CURRENCY              = 'KRW'
-          AMOUNT_INTERNAL       = LV_INTERNAL
-        IMPORTING
-          AMOUNT_EXTERNAL       = LV_INTERNAL
-                .
-
-      GS_EKPO-NETPR = LV_INTERNAL.
 
       MOVE-CORRESPONDING GS_EKPO TO GS_DATA.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+        EXPORTING
+          INPUT         = GS_DATA-MATNR
+        IMPORTING
+          OUTPUT        = GS_DATA-MATNR
+                .
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+        EXPORTING
+          INPUT         = GS_DATA-IDNRK
+        IMPORTING
+          OUTPUT        = GS_DATA-IDNRK
+               .
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+        EXPORTING
+          INPUT         = GS_DATA-LIFNR
+        IMPORTING
+          OUTPUT        = GS_DATA-LIFNR
+               .
 
       GS_DATA-NUMBR = LV_INDEX. "ALV INDEX (NO.)
 
@@ -217,14 +263,16 @@ ENDFORM.                    " CREATE_OBJECT_0100
 *  <--  p2        text
 *----------------------------------------------------------------------*
 FORM INIT_FCAT_0100 .
-                                               "필드변수 "필드명           "KEY  "REFT  "REFF   "CFIELD  "OPT  "필드색
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MATNR'   '상품 자재 코드'  'X'   ''     ''      ''       'A'   ''.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_1' '상품 자재 내역'  ''    ''     ''      ''       'A'   ''.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'IDNRK'   '하위 자재 코드'  ''    ''     ''      ''       'A'   'C300'.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_2' '하위 자재 내역'  ''    ''     ''      ''       'A'   ''.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'LIFNR'   '거래처 코드'     ''    ''     ''      ''       'A'   'C500'.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NAME1'   '거래처명'        ''    ''     ''      ''       'A'   'C500'.
-  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NETPR'   '하위 자재 단가'  ''    'EKKO' 'WAERS' 'WAERS'  'A'   'C500'.
+                                               "필드변수 "필드명           "KEY  "REFT  "REFF   "CFIELD  "LZERO   "OPT  "필드색
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NUMBR'   'No.'             'X'   ''     ''      ''       ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MATNR'   '상품 자재 코드'  'X'   ''     ''      ''       ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_1' '상품 자재 내역'  ''    ''     ''      ''       ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'IDNRK'   '하위 자재 코드'  ''    ''     ''      ''       ''       'A'   'C300'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'MAKTX_2' '하위 자재 내역'  ''    ''     ''      ''       ''       'A'   ''.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'LIFNR'   '거래처 코드'     ''    ''     ''      ''       ''       'A'   'C500'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NAME1'   '거래처명'        ''    ''     ''      ''       ''       'A'   'C500'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'NETPR'   '하위 자재 단가'  ''    'EKKO' 'WAERS' 'WAERS'  ''       'A'   'C500'.
+  PERFORM SET_FCAT_0100 USING GT_FCAT_0100   'WAERS'   '단가 단위'       ''    'EKKO' 'WAERS' ''       ''       'A'   'C500'.
 ENDFORM.                    " INIT_FCAT_0100
 *&---------------------------------------------------------------------*
 *&      Form  SET_FCAT_0100
@@ -246,6 +294,7 @@ FORM SET_FCAT_0100  USING    P_GT_FCAT_0100
                              P_REF_TABLE
                              P_REF_FIELD
                              P_CFIELDNAME
+                             P_LZERO
                              P_OPT
                              P_EMPHASIZE.
 
@@ -256,6 +305,7 @@ FORM SET_FCAT_0100  USING    P_GT_FCAT_0100
   GS_FCAT_0100-REF_TABLE  = P_REF_TABLE.
   GS_FCAT_0100-REF_FIELD  = P_REF_FIELD.
   GS_FCAT_0100-CFIELDNAME = P_CFIELDNAME.
+  GS_FCAT_0100-LZERO      = P_LZERO.
   GS_FCAT_0100-COL_OPT    = P_OPT.
   GS_FCAT_0100-EMPHASIZE  = P_EMPHASIZE.
   APPEND GS_FCAT_0100 TO GT_FCAT_0100.
