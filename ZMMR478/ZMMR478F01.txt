@@ -1,4 +1,4 @@
-*&---------------------------------------------------------------------*
+*&--------------------------------------------------------------------- *
 *&  INCLUDE           ZMMR478F01
 *&---------------------------------------------------------------------*
 *&---------------------------------------------------------------------*
@@ -14,7 +14,7 @@ FORM GET_FILE .
   DATA : LT_PATH TYPE FILETABLE,
          LS_PATH TYPE FILE_TABLE.
 
-  DATA : LV_RC TYPE I.
+  DATA : LV_RC TYPE I .
 
 * 파일 선택 창 호출
   CALL METHOD CL_GUI_FRONTEND_SERVICES=>FILE_OPEN_DIALOG
@@ -44,7 +44,7 @@ FORM GET_FILE .
 
   READ TABLE LT_PATH INTO LS_PATH INDEX 1.
   IF SY-SUBRC = 0.
-    P_PATH = LS_PATH.
+    P_PATH = LS_PATH .
   ENDIF.
 ENDFORM.                    " GET_FILE
 *&---------------------------------------------------------------------*
